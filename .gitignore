@@ -8,3 +8,5 @@ models/*.history.json
 models/*.png
 *.egg-info/
 .pytest_cache/
+*.docx
+
