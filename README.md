@@ -1,87 +1,123 @@
 # Life Oracle
 
-A native desktop Game of Life simulator with a neural-network fate predictor.
+> An interactive desktop Conway's Game of Life simulator paired with a convolutional neural network that predicts the eventual fate of cellular patterns before simulation.
 
-## Quick start
+[![Tests](https://img.shields.io/badge/tests-27%20passed-brightgreen.svg)](#test-suite)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
+
+---
+
+## Overview
+
+**Life Oracle** is a self-contained Python desktop application that explores the boundary between deterministic cellular automata and deep learning. You paint initial cell configurations onto a toroidal grid, watch them evolve, or consult a neural network trained to classify the eventual fate of the pattern directly from its starting state.
+
+### Key Capabilities
+- **Minimalist Aesthetic GUI**: High-contrast, distraction-free monochrome canvas built with `pygame-ce`.
+- **Dynamic Board Geometry**: Full window resizing, scroll-wheel zoom (4px to 40px/cell), and live board scaling (8×8 to 128×128).
+- **Exact Fate Oracle**: Ground-truth engine using state-hash cycle detection to identify exact periods, settle times, and final populations.
+- **Neural Fate Predictor**: Custom `FateNet` CNN with circular convolutions matching toroidal topology.
+- **Pattern Library & Text I/O**: 14 classic Conway archetypes with rotation, wrapping stamps, and plaintext `.cells` save/load.
+- **Live Ground-Truth Verification**: Instant `Verify` mode comparing predicted probability distributions against actual simulation trajectories.
+
+---
+
+## Deep-Dive Documentation
+
+For thorough explanations of the mathematical principles, architecture, and training pipeline, see the specialized guides in [`docs/`](file:///home/prawmathean/playground/Projects/gameOfLife/docs/):
+
+- 📐 [**System Architecture**](file:///home/prawmathean/playground/Projects/gameOfLife/docs/ARCHITECTURE.md): End-to-end dataflow, module responsibilities, and system design.
+- 🔄 [**Simulation & Oracle Mechanics**](file:///home/prawmathean/playground/Projects/gameOfLife/docs/SIMULATION_AND_ORACLE.md): B3/S23 rules, 2-torus ($T^2$) topology, and exact cycle-detection algorithms.
+- 🧠 [**Neural Predictor Theory**](file:///home/prawmathean/playground/Projects/gameOfLife/docs/NEURAL_PREDICTOR.md): Turing undecidability, circular convolutions, and translation invariance.
+- 📊 [**Dataset Synthesis & Training**](file:///home/prawmathean/playground/Projects/gameOfLife/docs/DATASET_AND_TRAINING.md): Multi-source generation, canonical dihedral deduplication, and baseline benchmarks.
+
+---
+
+## Quickstart
+
+### 1. Environment Setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+git clone <repo-url> && cd gameOfLife
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-python -m life.app          # play the game
 ```
 
-## Commands
-
-| Command | Description |
-|---|---|
-| `python -m life.app` | Launch the desktop app |
-| `python -m life.generate_data` | Generate labeled training dataset (default 30k) |
-| `python -m life.generate_data --n 5000` | Quick 5k dataset for testing |
-| `python -m life.train` | Train FateNet (60 epochs, early stopping) |
-| `python -m life.train --epochs 30 --batch 128` | Custom training config |
-| `python -m life.evaluate` | Evaluate model + baselines on test split |
-| `python -m life.evaluate --plots` | Also save confusion matrix + calibration PNG |
-| `pytest` | Run all tests |
-
-## Full ML pipeline (after app is working)
+### 2. Launch the Application
 
 ```bash
-# 1. Generate dataset (~5-10 min for 30k samples)
-python -m life.generate_data
-
-# 2. Train (~10-30 min on CPU depending on dataset size)
-python -m life.train
-
-# 3. Evaluate
-python -m life.evaluate --plots
-
-# 4. Launch app — predictor loads automatically
 python -m life.app
 ```
 
-## Controls
+> **Note**: The application functions immediately as a standalone Game of Life sandbox. Once you train the model (below), the prediction panel activates automatically.
 
-| Key / Mouse | Action |
-|---|---|
-| Left click/drag | Paint live cells |
-| Right click/drag | Erase cells |
-| Space | Play / pause |
-| → or N | Step one generation |
-| ↑ / ↓ | Increase / decrease speed |
-| C | Clear board |
-| R | Random soup |
-| G | Toggle grid lines |
-| 1–9 | Select stamp pattern |
-| Q / E | Rotate stamp CCW / CW |
-| Click (stamp mode) | Place stamp |
-| P | Toggle live prediction |
-| V | Verify: run oracle on current board |
-| F | Fast-forward to settled state |
-| S / L | Save / load pattern |
-| Esc | Cancel stamp / quit |
+---
 
-## Project layout
+## The Neural Pipeline
 
-```
-life/
-  config.py       shared constants
-  engine.py       simulation (vectorised + reference)
-  oracle.py       fate detection with cycle detection
-  patterns.py     built-in pattern library + file I/O
-  predictor.py    inference wrapper (needs trained model)
-  model.py        FateNet CNN definition
-  app.py          pygame UI (entry point)
-data/             generated datasets (not committed)
-models/           trained checkpoints
-patterns/         saved .cells files
-tests/            pytest test suite
+### Step 1: Generate Training Data
+Synthesizes a balanced, canonical-deduplicated dataset across four pattern generators (uniform soups, localized patches, library archetypes, and multi-pattern collisions):
+
+```bash
+python -m life.generate_data --n 30000
 ```
 
-## Fate classes
+### Step 2: Train FateNet
+Trains the CNN with circular convolutions, dynamic dihedral augmentations, and early stopping:
 
-| Class | Meaning |
+```bash
+python -m life.train --epochs 60 --batch 256
+```
+
+### Step 3: Evaluate Metrics & Baselines
+Computes confusion matrices, expected calibration error (ECE), and compares against majority, logistic regression, and dense MLP baselines:
+
+```bash
+python -m life.evaluate --plots
+```
+
+---
+
+## Desktop Controls
+
+| Key / Input | Action |
 |---|---|
-| EXTINCT | All cells die |
-| STABLE | Settles into a still life |
-| OSCILLATING | Repeating cycle of period ≥ 2 |
-| UNSETTLED | No repeat within generation limit |
+| `Left Click` / `Drag` | Toggle cell state (draw / erase) |
+| `Right Click` / `Drag` | Erase cells |
+| `Space` | Play / Pause simulation |
+| `→` or `N` | Advance single generation |
+| `↑` / `↓` | Double / halve simulation speed |
+| `[` / `]` or `Scroll` | Zoom in / out (cell pixel size) |
+| `<` / `>` (`,` / `.`) | Decrease / increase board dimensions ($\pm 4$) |
+| `C` | Clear grid to empty state |
+| `R` | Populate grid with random soup |
+| `G` | Toggle grid lines |
+| `1` – `9` | Select stamp from library (Glider, Gosper Gun, Pulsar, etc.) |
+| `Q` / `E` | Rotate active stamp $90^\circ$ CCW / CW |
+| `P` | Toggle live background neural prediction |
+| `V` | Run Fate Oracle to verify ground truth |
+| `F` | Fast-forward board directly to settled state |
+| `S` / `L` | Save / load pattern (`.cells` format) |
+| `Esc` | Cancel active stamp / Quit application |
+
+---
+
+## Fate Classes
+
+| Fate Class | Description | Detection Condition |
+|---|---|---|
+| `EXTINCT` | All cells perish | Total active population drops to 0 |
+| `STABLE` | Still life | Grid state repeats with period 1 and population $> 0$ |
+| `OSCILLATING` | Periodic oscillator | Grid state repeats with period $\ge 2$ |
+| `UNSETTLED` | Unsettled transient | No repeat found within 1,000 generation limit |
+
+---
+
+## Test Suite
+
+Run the full pytest suite (engine unit tests, cycle detection, shape equivariance, and end-to-end integration):
+
+```bash
+pytest
+```
