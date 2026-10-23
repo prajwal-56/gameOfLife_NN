@@ -1,6 +1,7 @@
 numpy>=1.26
 pygame-ce>=2.5
 pytest>=7.0
+tqdm>=4.66
 # ML dependencies
 torch>=2.0
 scikit-learn>=1.4
