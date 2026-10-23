@@ -279,7 +279,6 @@ def evaluate(
     _print_cm(cm, [n[:6] for n in CLASS_NAMES])
 
     # ── Breakdown by source ───────────────────────────────────────────────
-    src_arr = data["source"][make_splits.__wrapped_idx if hasattr(make_splits, "__wrapped_idx") else :]
     # Re-derive test indices via same seed
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(data["y"]))
