@@ -1,16 +1,17 @@
 """
-Life Oracle – pygame desktop application.
+Life Oracle – modern minimal desktop application.
 Entry point: python -m life.app
 
 Layout (resizable)
 ------------------
-+--------------------+-------+
-|                    |       |
-|      BOARD         | PANEL |
-|                    |       |
-+--------------------+-------+
++-----------------------------------+-------------------+
+|                                   |                   |
+|        SIMULATION BOARD           |    SIDE PANEL     |
+|       (toroidal canvas)           | (cards & metrics) |
+|                                   |                   |
++-----------------------------------+-------------------+
 
-All geometry is recomputed each frame from the live window size.
+Dynamic geometry recalculation ensures responsiveness across window resizes.
 """
 
 from __future__ import annotations
@@ -44,67 +45,80 @@ try:
 except Exception:
     _PREDICTOR_AVAILABLE = False
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Minimal monochrome palette
-# ─────────────────────────────────────────────────────────────────────────────
-C_BG         = (15,  15,  15)   # near-black canvas
-C_ALIVE      = (220, 220, 215)  # warm off-white cells
-C_DEAD       = (15,  15,  15)   # same as canvas
-C_GRID       = (35,  35,  35)   # very subtle grid lines
-C_PANEL_BG   = (22,  22,  22)   # slightly lighter than canvas
-C_DIVIDER    = (45,  45,  45)   # section separators
-C_TEXT       = (180, 180, 175)  # primary text
-C_DIM        = (80,  80,  75)   # de-emphasised text
-C_ACCENT     = (200, 200, 195)  # headers / highlighted items
-C_GOOD       = (140, 190, 140)  # muted green
-C_BAD        = (190, 120, 115)  # muted red
-C_STAMP_PRE  = (180, 180, 175, 80)  # semi-transparent stamp ghost
 
-# Fate class colours — muted, not neon
+# ─────────────────────────────────────────────────────────────────────────────
+#  Modern Minimalist Palette (High-Contrast, Refined Dark Mode)
+# ─────────────────────────────────────────────────────────────────────────────
+C_CANVAS      = (13,  14,  16)    # deep matte obsidian canvas
+C_ALIVE       = (242, 244, 248)   # clean porcelain white cells
+C_DEAD        = (13,  14,  16)    # same as canvas
+C_GRID_LINE   = (27,  29,  34)    # subtle unobtrusive grid line
+
+C_PANEL_BG    = (20,  22,  27)    # panel background
+C_PANEL_EDGE  = (36,  40,  49)    # separator border
+
+C_CARD_BG     = (26,  29,  36)    # card background
+C_CARD_EDGE   = (42,  46,  56)    # card border outline
+C_CARD_ACTIVE = (55,  62,  75)    # active item border
+
+C_TEXT_WHITE  = (255, 255, 255)   # highest contrast pure white
+C_TEXT_MAIN   = (225, 230, 238)   # primary high-contrast text
+C_TEXT_MUTED  = (165, 174, 186)   # clear secondary silver/gray
+C_TEXT_FAINT  = (115, 125, 140)   # subdued hints / brackets
+
+C_CHIP_BG     = (34,  38,  47)    # key tag badge background
+C_CHIP_EDGE   = (48,  54,  66)    # key tag border
+
+C_STAMP_GHOST = (242, 244, 248, 85) # translucent stamp placement ghost
+
+# Status Indicators
+C_RUN_BG      = (22,  48,  34)
+C_RUN_TEXT    = (75,  215, 130)
+C_RUN_EDGE    = (35,  85,  55)
+
+C_PAUSE_BG    = (34,  37,  45)
+C_PAUSE_TEXT  = (180, 186, 198)
+C_PAUSE_EDGE  = (52,  56,  68)
+
+C_MATCH_BG    = (20,  45,  30)
+C_MATCH_TEXT  = (80,  220, 130)
+C_MISMATCH_BG = (48,  25,  25)
+C_MISMATCH_TEXT = (240, 110, 110)
+
+# Refined Fate Colors (Matte Modern Tones)
 C_FATE = {
-    0: (160, 90,  85),   # EXTINCT    – dusty red
-    1: (85,  140, 170),  # STABLE     – slate blue
-    2: (170, 145, 75),   # OSCILLATING – warm amber
-    3: (130, 95,  165),  # UNSETTLED  – muted violet
+    0: (235, 105, 105),   # EXTINCT    – rose coral
+    1: (95,  175, 245),   # STABLE     – steel sky blue
+    2: (245, 185, 75),    # OSCILLATING – warm amber gold
+    3: (185, 135, 245),   # UNSETTLED  – amethyst violet
 }
 
-# Panel width (fixed); everything else scales with window
-PANEL_W     = 260
-MIN_WIN_W   = 600
-MIN_WIN_H   = 480
-INIT_WIN_W  = _CFG_BOARD_SIZE * _CFG_CELL_PX + PANEL_W
-INIT_WIN_H  = max(_CFG_BOARD_SIZE * _CFG_CELL_PX, 600)
+# Dimensions
+PANEL_W        = 320
+MIN_WIN_W      = 720
+MIN_WIN_H      = 540
+INIT_WIN_W     = _CFG_BOARD_SIZE * _CFG_CELL_PX + PANEL_W
+INIT_WIN_H     = max(_CFG_BOARD_SIZE * _CFG_CELL_PX, 640)
 
-# Cell-size and board-size limits
-CELL_PX_MIN, CELL_PX_MAX   = 4, 40
+CELL_PX_MIN, CELL_PX_MAX       = 4, 40
 BOARD_SIZE_MIN, BOARD_SIZE_MAX = 8, 128
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Small drawing helpers
+#  Font Loader with Modern Sans-Serif and Monospace Fallbacks
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _txt(surf: pygame.Surface, text: str, font: pygame.font.Font,
-         x: int, y: int, color: tuple = C_TEXT) -> int:
-    """Blit one line and return y of the next line."""
-    surf.blit(font.render(text, True, color), (x, y))
-    return y + font.get_linesize()
-
-
-def _divider(surf: pygame.Surface, x: int, y: int, w: int) -> int:
-    pygame.draw.line(surf, C_DIVIDER, (x, y + 3), (x + w, y + 3))
-    return y + 8
-
-
-def _bar(surf: pygame.Surface, x: int, y: int, w: int, h: int,
-         frac: float, color: tuple, label: str, font: pygame.font.Font) -> int:
-    """Labelled probability bar."""
-    pygame.draw.rect(surf, (40, 40, 40), (x, y, w, h))
-    fill = max(1, int(frac * w))
-    pygame.draw.rect(surf, color, (x, y, fill, h))
-    ts = font.render(f"{label}  {frac:.0%}", True, C_TEXT)
-    surf.blit(ts, (x + 4, y + (h - ts.get_height()) // 2))
-    return y + h + 2
+def _load_font(family_names: str, size: int, bold: bool = False) -> pygame.font.Font:
+    """Attempt to load the cleanest available font from candidate families."""
+    for name in family_names.split(","):
+        name = name.strip()
+        matched = pygame.font.match_font(name, bold=bold)
+        if matched:
+            try:
+                return pygame.font.Font(matched, size)
+            except Exception:
+                pass
+    return pygame.font.SysFont(family_names.split(",")[0].strip(), size, bold=bold)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +130,7 @@ class App:
 
     def __init__(self) -> None:
         pygame.init()
+        pygame.font.init()
         pygame.display.set_caption("Life Oracle")
 
         self.screen = pygame.display.set_mode(
@@ -124,14 +139,21 @@ class App:
         )
         self.clock = pygame.time.Clock()
 
-        # Fonts (monospace keeps the panel tidy)
-        self.font_sm  = pygame.font.SysFont("monospace", 11)
-        self.font_med = pygame.font.SysFont("monospace", 13)
-        self.font_lg  = pygame.font.SysFont("monospace", 14, bold=True)
+        # Load modern typography
+        sans = "adwaitasans, notosans, dejavusans, freesans, helvetica, arial, sans-serif"
+        mono = "adwaitamono, hack, freemono, dejavusansmono, monospace"
+
+        self.font_title   = _load_font(sans, 16, bold=True)
+        self.font_card_h  = _load_font(sans, 13, bold=True)
+        self.font_body    = _load_font(sans, 13, bold=False)
+        self.font_small   = _load_font(sans, 11, bold=False)
+        self.font_mono    = _load_font(mono, 13, bold=False)
+        self.font_mono_sm = _load_font(mono, 11, bold=False)
+        self.font_key     = _load_font(mono, 11, bold=True)
 
         # ── Configurable display settings ────────────────────────────────
-        self.cell_px:   int = _CFG_CELL_PX    # zoom: pixels per cell
-        self.board_size: int = _CFG_BOARD_SIZE  # number of cells per side
+        self.cell_px:   int = _CFG_CELL_PX      # zoom: pixels per cell
+        self.board_size: int = _CFG_BOARD_SIZE   # grid dimension
 
         # ── Simulation state ─────────────────────────────────────────────
         self.grid: Grid = empty_grid(self.board_size)
@@ -140,12 +162,9 @@ class App:
         self.speed: float    = DEFAULT_SPEED
         self._last_step_t: float = time.perf_counter()
 
-        # ── Drawing / editing state ──────────────────────────────────────
+        # ── Drawing state ────────────────────────────────────────────────
         self.show_grid: bool = True
-        # paint mode: None = not dragging; int = value being painted (0 or 1)
         self._painting: Optional[int] = None
-        # The cell that was toggled on mouse-down (used to avoid re-toggling
-        # during drag over the same cell)
         self._paint_cell: Optional[tuple[int, int]] = None
 
         # ── Stamp state ──────────────────────────────────────────────────
@@ -167,11 +186,11 @@ class App:
         self.score_total:   int = 0
         self.score_correct: int = 0
 
-        # ── Status message (transient) ───────────────────────────────────
-        self._status_msg: str = ""
+        # ── Floating status notification ─────────────────────────────────
+        self._status_msg: str   = ""
         self._status_t:   float = 0.0
 
-        # ── Predictor (optional) ─────────────────────────────────────────
+        # ── Predictor instance (optional) ────────────────────────────────
         self.predictor = None
         if _PREDICTOR_AVAILABLE:
             try:
@@ -181,12 +200,11 @@ class App:
                 pass
 
     # ─────────────────────────────────────────────────────────────────────────
-    #  Geometry helpers (all dynamic)
+    #  Geometry Properties
     # ─────────────────────────────────────────────────────────────────────────
 
     @property
     def board_px(self) -> int:
-        """Width/height of the board area in pixels."""
         return self.board_size * self.cell_px
 
     @property
@@ -194,7 +212,6 @@ class App:
         return self.screen.get_width() - PANEL_W
 
     def _cell_at(self, pos: tuple[int, int]) -> Optional[tuple[int, int]]:
-        """Return (row, col) for a pixel position, or None if outside board."""
         x, y = pos
         bp = self.board_px
         if x < 0 or x >= bp or y < 0 or y >= bp:
@@ -202,7 +219,7 @@ class App:
         return y // self.cell_px, x // self.cell_px
 
     # ─────────────────────────────────────────────────────────────────────────
-    #  Main loop
+    #  Main Loop
     # ─────────────────────────────────────────────────────────────────────────
 
     def run(self) -> None:
@@ -215,7 +232,7 @@ class App:
             pygame.display.flip()
 
     # ─────────────────────────────────────────────────────────────────────────
-    #  Event handling
+    #  Events
     # ─────────────────────────────────────────────────────────────────────────
 
     def _handle_events(self) -> None:
@@ -229,10 +246,10 @@ class App:
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button in (1, 3):
                     self._on_mouse_down(event.pos, event.button)
-                elif event.button == 4:   # scroll up → zoom in
-                    self._zoom(+1, event.pos)
-                elif event.button == 5:   # scroll down → zoom out
-                    self._zoom(-1, event.pos)
+                elif event.button == 4:   # Scroll up -> Zoom in
+                    self._zoom(+1)
+                elif event.button == 5:   # Scroll down -> Zoom out
+                    self._zoom(-1)
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button in (1, 3):
@@ -244,17 +261,14 @@ class App:
                     self._on_mouse_drag(event.pos)
 
             elif event.type == pygame.VIDEORESIZE:
-                # pygame.RESIZABLE handles the surface automatically in pygame2+
                 pass
-
-    # ── Mouse ─────────────────────────────────────────────────────────────────
 
     def _on_mouse_down(self, pos: tuple[int, int], button: int) -> None:
         cell = self._cell_at(pos)
         if cell is None:
             return
 
-        # Stamp placement (left-click only)
+        # Stamp placement
         if self._stamp_name and button == 1:
             r, c = cell
             self.grid = stamp(self.grid, self._stamp_pat, r, c, self._stamp_rot)
@@ -263,15 +277,14 @@ class App:
             return
 
         r, c = cell
-
         if button == 1:
-            # Toggle the cell that was clicked; subsequent drag paints same value
+            # Toggle cell state
             new_val = 1 - int(self.grid[r, c])
             self._painting   = new_val
             self._paint_cell = (r, c)
             self.grid[r, c]  = new_val
         else:
-            # Right-click always erases
+            # Right click erases
             self._painting   = 0
             self._paint_cell = (r, c)
             self.grid[r, c]  = 0
@@ -283,10 +296,8 @@ class App:
         if self._stamp_name:
             return
         cell = self._cell_at(pos)
-        if cell is None:
+        if cell is None or cell == self._paint_cell:
             return
-        if cell == self._paint_cell:
-            return   # already handled on mouse-down
         r, c = cell
         if self.grid[r, c] != self._painting:
             self.grid[r, c]  = self._painting
@@ -297,10 +308,7 @@ class App:
         self._last_edit_t = time.perf_counter()
         self.fate_result  = None
 
-    # ── Keyboard ──────────────────────────────────────────────────────────────
-
     def _on_key(self, key: int, mod: int) -> None:
-        # ── Simulation controls ───────────────────────────────────────────
         if key == pygame.K_SPACE:
             self.running = not self.running
 
@@ -309,27 +317,33 @@ class App:
 
         elif key == pygame.K_UP:
             self.speed = min(self.speed * 2, 200.0)
+            self._status(f"Speed: {self.speed:.1f} g/s")
 
         elif key == pygame.K_DOWN:
             self.speed = max(self.speed / 2, 0.5)
+            self._status(f"Speed: {self.speed:.1f} g/s")
 
         elif key == pygame.K_c:
             self.grid = empty_grid(self.board_size)
             self.generation = 0
             self.fate_result = None
             self._on_board_edit()
+            self._status("Grid Cleared")
 
         elif key == pygame.K_r:
             self.grid = random_grid(self.board_size)
             self.generation = 0
             self.fate_result = None
             self._on_board_edit()
+            self._status("Randomized Board")
 
         elif key == pygame.K_g:
             self.show_grid = not self.show_grid
+            self._status(f"Grid lines: {'ON' if self.show_grid else 'OFF'}")
 
         elif key == pygame.K_p:
             self.live_predict = not self.live_predict
+            self._status(f"Prediction: {'ON' if self.live_predict else 'OFF'}")
 
         elif key == pygame.K_v:
             self._verify()
@@ -338,44 +352,42 @@ class App:
             self._fast_forward()
 
         elif key == pygame.K_s:
-            self._save_dialog()
+            self._save_pattern()
 
         elif key == pygame.K_l:
-            self._load_dialog()
+            self._load_pattern()
 
-        # ── Zoom ([ and ]) ────────────────────────────────────────────────
         elif key == pygame.K_LEFTBRACKET:
             self._zoom(-1)
 
         elif key == pygame.K_RIGHTBRACKET:
             self._zoom(+1)
 
-        # ── Board size (< and >) ──────────────────────────────────────────
-        elif key == pygame.K_COMMA:   # < (without shift on most layouts)
+        elif key == pygame.K_COMMA:
             self._resize_board(self.board_size - 4)
 
-        elif key == pygame.K_PERIOD:  # >
+        elif key == pygame.K_PERIOD:
             self._resize_board(self.board_size + 4)
 
-        # ── Stamp rotation ────────────────────────────────────────────────
         elif key == pygame.K_q and self._stamp_name:
             self._stamp_rot = (self._stamp_rot - 1) % 4
             self._stamp_pat = rotate_pattern(get_pattern(self._stamp_name), self._stamp_rot)
+            self._status(f"Rotated {self._stamp_name} ({self._stamp_rot * 90}°)")
 
         elif key == pygame.K_e and self._stamp_name:
             self._stamp_rot = (self._stamp_rot + 1) % 4
             self._stamp_pat = rotate_pattern(get_pattern(self._stamp_name), self._stamp_rot)
+            self._status(f"Rotated {self._stamp_name} ({self._stamp_rot * 90}°)")
 
-        # ── Esc ───────────────────────────────────────────────────────────
         elif key == pygame.K_ESCAPE:
             if self._stamp_name:
                 self._stamp_name = None
                 self._stamp_pat  = None
                 self._stamp_rot  = 0
+                self._status("Stamp Deselected")
             else:
                 self._quit()
 
-        # ── 1-9: pattern library ──────────────────────────────────────────
         elif pygame.K_1 <= key <= pygame.K_9:
             idx = key - pygame.K_1
             if idx < len(PATTERN_ORDER):
@@ -383,37 +395,9 @@ class App:
                 self._stamp_name = name
                 self._stamp_rot  = 0
                 self._stamp_pat  = get_pattern(name)
+                self._status(f"Stamp Selected: {name} (Click board to place)")
 
-    # ── Zoom & resize ─────────────────────────────────────────────────────────
-
-    def _zoom(self, delta: int, mouse_pos: tuple[int, int] | None = None) -> None:
-        new_px = max(CELL_PX_MIN, min(CELL_PX_MAX, self.cell_px + delta))
-        self.cell_px = new_px
-
-    def _resize_board(self, new_size: int) -> None:
-        new_size = max(BOARD_SIZE_MIN, min(BOARD_SIZE_MAX, new_size))
-        if new_size == self.board_size:
-            return
-        # Crop or pad with zeros
-        old = self.grid
-        new = empty_grid(new_size)
-        copy_r = min(old.shape[0], new_size)
-        copy_c = min(old.shape[1], new_size)
-        new[:copy_r, :copy_c] = old[:copy_r, :copy_c]
-        self.grid       = new
-        self.board_size = new_size
-        self.generation = 0
-        self.fate_result = None
-        self._on_board_edit()
-        self._status(f"Board: {new_size}×{new_size}")
-
-    def _status(self, msg: str, duration: float = 2.0) -> None:
-        self._status_msg = msg
-        self._status_t   = time.perf_counter() + duration
-
-    # ─────────────────────────────────────────────────────────────────────────
-    #  Simulation
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── Simulation & Prediction ───────────────────────────────────────────────
 
     def _advance(self) -> None:
         self.grid = step(self.grid)
@@ -425,125 +409,139 @@ class App:
     def _maybe_step(self) -> None:
         if not self.running:
             return
-        now      = time.perf_counter()
-        interval = 1.0 / self.speed
-        if now - self._last_step_t >= interval:
+        now = time.perf_counter()
+        if now - self._last_step_t >= 1.0 / self.speed:
             self._advance()
             self._last_step_t = now
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  Prediction
-    # ─────────────────────────────────────────────────────────────────────────
-
     def _maybe_predict(self) -> None:
-        if not self.live_predict or self.predictor is None:
-            return
-        if self._last_edit_t == 0.0:
+        if not self.live_predict or self.predictor is None or self._last_edit_t == 0.0:
             return
         elapsed_ms = (time.perf_counter() - self._last_edit_t) * 1000
         if elapsed_ms >= PREDICT_DEBOUNCE_MS and not self._predict_scheduled:
             self._predict_scheduled = True
             snap = self.grid.copy()
-            def _run():
-                p = self.predictor.predict(snap)
-                self.probs = p
+            def _task():
+                res = self.predictor.predict(snap)
+                self.probs = res
                 self._predict_scheduled = False
                 self._last_edit_t = 0.0
-            threading.Thread(target=_run, daemon=True).start()
-
-    # ─────────────────────────────────────────────────────────────────────────
-    #  Oracle / verify
-    # ─────────────────────────────────────────────────────────────────────────
+            threading.Thread(target=_task, daemon=True).start()
 
     def _verify(self) -> None:
         if self._verify_running:
             return
         self._verify_running = True
+        self._status("Evaluating ground truth oracle…")
         snap = self.grid.copy()
-        def _run():
-            result = run_until_settled(snap)
-            self.fate_result = result
+        def _task():
+            res = run_until_settled(snap)
+            self.fate_result = res
             if self.probs is not None:
-                pred = int(np.argmax(self.probs))
-                self.score_total  += 1
-                if pred == result.label:
+                self.score_total += 1
+                if int(np.argmax(self.probs)) == res.label:
                     self.score_correct += 1
             self._verify_running = False
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(target=_task, daemon=True).start()
 
     def _fast_forward(self) -> None:
-        result = run_until_settled(self.grid.copy())
-        self.fate_result = result
+        self._status("Fast-forwarding to settled state…")
+        res = run_until_settled(self.grid.copy())
+        self.fate_result = res
         g = self.grid.copy()
-        target = result.settle_time if result.settle_time is not None else result.generations_run
+        target = res.settle_time if res.settle_time is not None else res.generations_run
         for _ in range(target):
             g = step(g)
         self.grid = g
         self.generation = target
         self._on_board_edit()
+        self._status(f"Jumped to generation {target}")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  Save / load
-    # ─────────────────────────────────────────────────────────────────────────
+    def _zoom(self, delta: int) -> None:
+        self.cell_px = max(CELL_PX_MIN, min(CELL_PX_MAX, self.cell_px + delta))
 
-    def _save_dialog(self) -> None:
+    def _resize_board(self, new_size: int) -> None:
+        new_size = max(BOARD_SIZE_MIN, min(BOARD_SIZE_MAX, new_size))
+        if new_size == self.board_size:
+            return
+        old = self.grid
+        new = empty_grid(new_size)
+        cr = min(old.shape[0], new_size)
+        cc = min(old.shape[1], new_size)
+        new[:cr, :cc] = old[:cr, :cc]
+        self.grid = new
+        self.board_size = new_size
+        self.generation = 0
+        self.fate_result = None
+        self._on_board_edit()
+        self._status(f"Grid resized: {new_size}×{new_size}")
+
+    def _save_pattern(self) -> None:
         PATTERNS_DIR.mkdir(parents=True, exist_ok=True)
-        idx  = len(list(PATTERNS_DIR.glob("*.cells")))
+        idx = len(list(PATTERNS_DIR.glob("*.cells")))
         path = PATTERNS_DIR / f"pattern_{idx:03d}.cells"
         save_cells(path, self.grid)
-        self._status(f"Saved → {path.name}")
+        self._status(f"Pattern saved: {path.name}")
 
-    def _load_dialog(self) -> None:
+    def _load_pattern(self) -> None:
         files = sorted(PATTERNS_DIR.glob("*.cells"))
         if not files:
-            self._status("No saved patterns found.")
+            self._status("No saved patterns found")
             return
         path = files[-1]
-        pat  = load_cells(path)
+        pat = load_cells(path)
         ph, pw = pat.shape
         r0 = max(0, (self.board_size - ph) // 2)
         c0 = max(0, (self.board_size - pw) // 2)
         self.grid = empty_grid(self.board_size)
         self.grid = stamp(self.grid, pat, r0, c0)
-        self.generation  = 0
+        self.generation = 0
         self.fate_result = None
         self._on_board_edit()
-        self._status(f"Loaded ← {path.name}")
+        self._status(f"Pattern loaded: {path.name}")
+
+    def _status(self, msg: str, duration: float = 2.5) -> None:
+        self._status_msg = msg
+        self._status_t   = time.perf_counter() + duration
 
     # ─────────────────────────────────────────────────────────────────────────
-    #  Drawing
+    #  Drawing Subsystem
     # ─────────────────────────────────────────────────────────────────────────
 
     def _draw(self) -> None:
-        self.screen.fill(C_BG)
+        self.screen.fill(C_CANVAS)
         self._draw_board()
-        self._draw_stamp_preview()
+        self._draw_stamp_ghost()
         self._draw_panel()
-        self._draw_status()
+        self._draw_toast()
 
     def _draw_board(self) -> None:
-        cp  = self.cell_px
-        bs  = self.board_size
-        bp  = self.board_px
         surf = self.screen
+        cp   = self.cell_px
+        bs   = self.board_size
+        bp   = self.board_px
 
-        # Dead background for the board area
+        # Fill background dead space
         pygame.draw.rect(surf, C_DEAD, (0, 0, bp, bp))
 
-        # Live cells
+        # Live cells as smooth crisp white tiles
+        radius = 2 if cp >= 10 else 0
         for r in range(bs):
             for c in range(bs):
                 if self.grid[r, c]:
-                    pygame.draw.rect(surf, C_ALIVE,
-                                     (c * cp + 1, r * cp + 1, cp - 1, cp - 1))
+                    rect = (c * cp + 1, r * cp + 1, cp - 1, cp - 1)
+                    if radius > 0:
+                        pygame.draw.rect(surf, C_ALIVE, rect, border_radius=radius)
+                    else:
+                        pygame.draw.rect(surf, C_ALIVE, rect)
 
-        # Grid lines
+        # Subtle clean grid lines
         if self.show_grid and cp >= 6:
             for i in range(bs + 1):
-                pygame.draw.line(surf, C_GRID, (i * cp, 0), (i * cp, bp))
-                pygame.draw.line(surf, C_GRID, (0, i * cp), (bp, i * cp))
+                pygame.draw.line(surf, C_GRID_LINE, (i * cp, 0), (i * cp, bp))
+                pygame.draw.line(surf, C_GRID_LINE, (0, i * cp), (bp, i * cp))
 
-    def _draw_stamp_preview(self) -> None:
+    def _draw_stamp_ghost(self) -> None:
         if self._stamp_pat is None:
             return
         mx, my = pygame.mouse.get_pos()
@@ -555,155 +553,284 @@ class App:
         bs = self.board_size
         cr, cc = my // cp, mx // cp
 
-        overlay = pygame.Surface((bp, bp), pygame.SRCALPHA)
-        ph, pw  = self._stamp_pat.shape
+        ghost_surf = pygame.Surface((bp, bp), pygame.SRCALPHA)
+        ph, pw = self._stamp_pat.shape
         for r in range(ph):
             for c in range(pw):
                 if self._stamp_pat[r, c]:
                     dr = (cr + r) % bs
                     dc = (cc + c) % bs
-                    pygame.draw.rect(overlay, C_STAMP_PRE,
-                                     (dc * cp, dr * cp, cp, cp))
-        self.screen.blit(overlay, (0, 0))
+                    pygame.draw.rect(ghost_surf, C_STAMP_GHOST,
+                                     (dc * cp + 1, dr * cp + 1, cp - 1, cp - 1),
+                                     border_radius=1 if cp >= 8 else 0)
+        self.screen.blit(ghost_surf, (0, 0))
 
     def _draw_panel(self) -> None:
         surf   = self.screen
+        win_w  = surf.get_width()
         win_h  = surf.get_height()
         px     = self.panel_x
         pw     = PANEL_W
-        pad    = 12            # left/right padding inside panel
-        x      = px + pad
-        w      = pw - pad * 2
-        y      = 12
 
-        # Panel background
+        # Panel canvas & divider line
         pygame.draw.rect(surf, C_PANEL_BG, (px, 0, pw, win_h))
-        # Left border line
-        pygame.draw.line(surf, C_DIVIDER, (px, 0), (px, win_h))
+        pygame.draw.line(surf, C_PANEL_EDGE, (px, 0), (px, win_h), 1)
 
-        # ── Title ─────────────────────────────────────────────────────────
-        y = _txt(surf, "Life Oracle", self.font_lg, x, y, C_ACCENT)
-        y += 2
-        y = _divider(surf, x, y, w)
+        pad = 16
+        card_w = pw - (pad * 2)
+        y = 16
 
-        # ── Sim stats ──────────────────────────────────────────────────────
-        pop    = int(self.grid.sum())
-        status = "run" if self.running else "pause"
-        y = _txt(surf, f"gen {self.generation}   pop {pop}", self.font_sm, x, y, C_TEXT)
-        y = _txt(surf, f"{status}   {self.speed:.1f} g/s", self.font_sm, x, y, C_GOOD if self.running else C_DIM)
-        y += 6
+        # ── Header Bar ────────────────────────────────────────────────────────
+        title = self.font_title.render("LIFE ORACLE", True, C_TEXT_WHITE)
+        surf.blit(title, (px + pad, y))
 
-        # ── Settings ──────────────────────────────────────────────────────
-        y = _divider(surf, x, y, w)
-        y = _txt(surf, "settings", self.font_lg, x, y, C_ACCENT)
-        y = _txt(surf, f"zoom  {self.cell_px}px/cell   [/]", self.font_sm, x, y, C_DIM)
-        y = _txt(surf, f"grid  {self.board_size}×{self.board_size}   </> (±4)", self.font_sm, x, y, C_DIM)
-        y = _txt(surf, f"lines {'on' if self.show_grid else 'off'}   G", self.font_sm, x, y, C_DIM)
-        y += 6
+        # Status Pill (RUNNING / PAUSED)
+        if self.running:
+            pill_txt = "RUNNING"
+            pill_bg, pill_fg, pill_ed = C_RUN_BG, C_RUN_TEXT, C_RUN_EDGE
+        else:
+            pill_txt = "PAUSED"
+            pill_bg, pill_fg, pill_ed = C_PAUSE_BG, C_PAUSE_TEXT, C_PAUSE_EDGE
 
-        # ── Prediction ────────────────────────────────────────────────────
-        y = _divider(surf, x, y, w)
-        pred_hdr = "predict" + ("" if self.live_predict else " [off]")
-        y = _txt(surf, pred_hdr, self.font_lg, x, y, C_ACCENT if self.live_predict else C_DIM)
+        pill_surf = self.font_mono_sm.render(pill_txt, True, pill_fg)
+        pill_w = pill_surf.get_width() + 14
+        pill_h = 20
+        pill_x = px + pw - pad - pill_w
+        pygame.draw.rect(surf, pill_bg, (pill_x, y, pill_w, pill_h), border_radius=10)
+        pygame.draw.rect(surf, pill_ed, (pill_x, y, pill_w, pill_h), 1, border_radius=10)
+        surf.blit(pill_surf, (pill_x + 7, y + 3))
+
+        y += 28
+
+        # ── Card 1: Telemetry & State ─────────────────────────────────────────
+        card1_h = 68
+        self._draw_card_box(surf, px + pad, y, card_w, card1_h)
+
+        cy = y + 10
+        cx = px + pad + 12
+
+        # Generation & Population counters
+        pop = int(self.grid.sum())
+        self._draw_stat_line(surf, cx, cy, card_w - 24, "Generation", f"{self.generation:,}")
+        cy += 24
+        self._draw_stat_line(surf, cx, cy, card_w - 24, "Population", f"{pop:,}")
+
+        y += card1_h + 10
+
+        # ── Card 2: Controls & Grid Settings ──────────────────────────────────
+        card2_h = 88
+        self._draw_card_box(surf, px + pad, y, card_w, card2_h)
+        cy = y + 10
+
+        self._draw_chip_line(surf, cx, cy, card_w - 24, "Speed", f"{self.speed:.1f} g/s", "↑/↓")
+        cy += 24
+        self._draw_chip_line(surf, cx, cy, card_w - 24, "Grid Size", f"{self.board_size}×{self.board_size}", "</>")
+        cy += 24
+        self._draw_chip_line(surf, cx, cy, card_w - 24, "Zoom", f"{self.cell_px}px", "[/]")
+
+        y += card2_h + 10
+
+        # ── Card 3: Neural Prediction ─────────────────────────────────────────
+        card3_h = 138
+        self._draw_card_box(surf, px + pad, y, card_w, card3_h)
+        cy = y + 10
+
+        # Title + toggle hint
+        pred_title = self.font_card_h.render("PREDICTION", True, C_TEXT_WHITE)
+        surf.blit(pred_title, (cx, cy))
+        p_hint = self.font_key.render("P", True, C_TEXT_MUTED)
+        self._draw_badge(surf, px + pad + card_w - 28, cy, 18, 16, p_hint)
+        cy += 22
 
         if self.predictor is None:
-            y = _txt(surf, "no model — train first", self.font_sm, x, y, C_DIM)
+            self._render_text(surf, "Model not trained yet", self.font_small, cx, cy + 8, C_TEXT_MUTED)
+            self._render_text(surf, "Run: python -m life.train", self.font_mono_sm, cx, cy + 28, C_TEXT_FAINT)
         elif self.probs is None:
-            y = _txt(surf, "draw something…", self.font_sm, x, y, C_DIM)
+            self._render_text(surf, "Paint cells to generate forecast…", self.font_small, cx, cy + 12, C_TEXT_MUTED)
         else:
-            top = int(np.argmax(self.probs))
+            top_idx = int(np.argmax(self.probs))
+            bar_w = card_w - 24
             for i, name in enumerate(CLASS_NAMES):
-                y = _bar(surf, x, y, w, 16, float(self.probs[i]),
-                         C_FATE[i], name.lower(), self.font_sm)
-            y += 2
-            y = _txt(surf, f"→ {CLASS_NAMES[top].lower()}", self.font_med, x, y, C_FATE[top])
-        y += 6
+                val = float(self.probs[i])
+                is_top = (i == top_idx)
+                cy = self._draw_progress_bar(
+                    surf, cx, cy, bar_w, 17, val, C_FATE[i],
+                    name.capitalize(), is_top
+                )
 
-        # ── Verify ────────────────────────────────────────────────────────
-        y = _divider(surf, x, y, w)
-        y = _txt(surf, "verify  V", self.font_lg, x, y, C_ACCENT)
+        y += card3_h + 10
+
+        # ── Card 4: Ground Truth Verify ───────────────────────────────────────
+        card4_h = 92
+        self._draw_card_box(surf, px + pad, y, card_w, card4_h)
+        cy = y + 10
+
+        v_title = self.font_card_h.render("GROUND TRUTH", True, C_TEXT_WHITE)
+        surf.blit(v_title, (cx, cy))
+        v_key = self.font_key.render("V", True, C_TEXT_MUTED)
+        self._draw_badge(surf, px + pad + card_w - 28, cy, 18, 16, v_key)
+        cy += 22
 
         if self._verify_running:
-            y = _txt(surf, "running…", self.font_sm, x, y, C_DIM)
+            self._render_text(surf, "Simulating cycle detection…", self.font_small, cx, cy + 8, C_TEXT_MUTED)
         elif self.fate_result is None:
-            y = _txt(surf, "press V to run oracle", self.font_sm, x, y, C_DIM)
+            self._render_text(surf, "Press [V] to run cycle oracle", self.font_small, cx, cy + 8, C_TEXT_MUTED)
+            if self.score_total > 0:
+                acc = self.score_correct / self.score_total
+                self._render_text(surf, f"Session Score: {self.score_correct}/{self.score_total} ({acc:.0%})",
+                                  self.font_mono_sm, cx, cy + 28, C_TEXT_MUTED)
         else:
             fr = self.fate_result
             fc = C_FATE[fr.label]
-            y = _txt(surf, fr.label_name.lower(), self.font_med, x, y, fc)
-            if fr.period is not None:
-                y = _txt(surf, f"period {fr.period}", self.font_sm, x, y, C_DIM)
-            if fr.settle_time is not None:
-                y = _txt(surf, f"settled gen {fr.settle_time}", self.font_sm, x, y, C_DIM)
-            y = _txt(surf, f"pop {fr.final_population}", self.font_sm, x, y, C_DIM)
 
+            # Fate badge
+            fate_lbl = self.font_body.render(fr.label_name, True, fc)
+            surf.blit(fate_lbl, (cx, cy))
+
+            # Match indicator
             if self.probs is not None:
-                pred_lbl = int(np.argmax(self.probs))
-                match    = pred_lbl == fr.label
-                y = _txt(surf,
-                         "match ✓" if match else "mismatch ✗",
-                         self.font_med, x, y,
-                         C_GOOD if match else C_BAD)
-        y += 6
+                match = (int(np.argmax(self.probs)) == fr.label)
+                m_txt = "MATCH" if match else "MISMATCH"
+                m_fg  = C_MATCH_TEXT if match else C_MISMATCH_TEXT
+                m_bg  = C_MATCH_BG if match else C_MISMATCH_BG
+                m_surf = self.font_mono_sm.render(m_txt, True, m_fg)
+                mw = m_surf.get_width() + 10
+                pygame.draw.rect(surf, m_bg, (px + pad + card_w - 12 - mw, cy, mw, 18), border_radius=4)
+                surf.blit(m_surf, (px + pad + card_w - 12 - mw + 5, cy + 2))
 
-        # ── Scoreboard ────────────────────────────────────────────────────
-        y = _divider(surf, x, y, w)
-        y = _txt(surf, "score", self.font_lg, x, y, C_ACCENT)
-        if self.score_total == 0:
-            y = _txt(surf, "—", self.font_sm, x, y, C_DIM)
-        else:
-            acc = self.score_correct / self.score_total
-            y = _txt(surf,
-                     f"{self.score_correct}/{self.score_total}  {acc:.0%}",
-                     self.font_med, x, y,
-                     C_GOOD if acc >= 0.7 else C_BAD)
-        y += 6
+            cy += 22
+            # Cycle details
+            details = []
+            if fr.period is not None:
+                details.append(f"Period: {fr.period}")
+            if fr.settle_time is not None:
+                details.append(f"Settled: gen {fr.settle_time}")
+            details.append(f"End Pop: {fr.final_population}")
+            self._render_text(surf, " · ".join(details), self.font_mono_sm, cx, cy, C_TEXT_MUTED)
 
-        # ── Pattern library ───────────────────────────────────────────────
-        y = _divider(surf, x, y, w)
-        y = _txt(surf, "patterns  1-9  Q/E rotate", self.font_lg, x, y, C_ACCENT)
-        for i, name in enumerate(PATTERN_ORDER[:9]):
-            col = C_TEXT if name == self._stamp_name else C_DIM
-            y   = _txt(surf, f"{i+1} {name}", self.font_sm, x, y, col)
-            if y > win_h - 80:
-                break
-        y += 6
+            if self.score_total > 0:
+                acc = self.score_correct / self.score_total
+                cy += 18
+                self._render_text(surf, f"Accuracy: {self.score_correct}/{self.score_total} ({acc:.0%})",
+                                  self.font_small, cx, cy, C_TEXT_MUTED)
 
-        # ── Controls ──────────────────────────────────────────────────────
-        if y < win_h - 20:
-            y = _divider(surf, x, y, w)
-            y = _txt(surf, "controls", self.font_lg, x, y, C_ACCENT)
-            for line in [
-                "space  play/pause",
-                "→ / n  step",
-                "↑ ↓    speed",
-                "c      clear",
-                "r      random",
-                "f      fast-forward",
-                "s / l  save / load",
-                "scroll zoom",
-                "esc    quit",
-            ]:
-                if y + 14 > win_h - 4:
+        y += card4_h + 10
+
+        # ── Card 5: Pattern Stamps ────────────────────────────────────────────
+        rem_h = win_h - y - 16
+        if rem_h >= 110:
+            card5_h = min(rem_h, 160)
+            self._draw_card_box(surf, px + pad, y, card_w, card5_h)
+            cy = y + 10
+
+            s_title = self.font_card_h.render("PATTERN STAMPS", True, C_TEXT_WHITE)
+            surf.blit(s_title, (cx, cy))
+            if self._stamp_name:
+                rot_str = f"{self._stamp_rot * 90}° (Q/E)"
+                r_surf = self.font_mono_sm.render(rot_str, True, C_RUN_TEXT)
+                surf.blit(r_surf, (px + pad + card_w - 12 - r_surf.get_width(), cy))
+            cy += 22
+
+            # 2-column pattern stamp grid
+            col_w = (card_w - 28) // 2
+            for i, name in enumerate(PATTERN_ORDER[:8]):
+                col = i % 2
+                row = i // 2
+                item_x = cx + (col * (col_w + 8))
+                item_y = cy + (row * 24)
+                if item_y + 20 > y + card5_h:
                     break
-                y = _txt(surf, line, self.font_sm, x, y, C_DIM)
 
-    def _draw_status(self) -> None:
-        """Transient status message drawn at bottom of board area."""
-        if not self._status_msg:
-            return
-        if time.perf_counter() > self._status_t:
-            self._status_msg = ""
+                is_active = (name == self._stamp_name)
+                bg_col = C_CARD_ACTIVE if is_active else C_CHIP_BG
+                fg_col = C_TEXT_WHITE if is_active else C_TEXT_MUTED
+                border_col = C_RUN_EDGE if is_active else C_CHIP_EDGE
+
+                pygame.draw.rect(surf, bg_col, (item_x, item_y, col_w, 20), border_radius=4)
+                pygame.draw.rect(surf, border_col, (item_x, item_y, col_w, 20), 1, border_radius=4)
+
+                k_surf = self.font_key.render(f"{i+1}", True, C_TEXT_WHITE if is_active else C_TEXT_FAINT)
+                surf.blit(k_surf, (item_x + 5, item_y + 3))
+
+                n_surf = self.font_small.render(name, True, fg_col)
+                surf.blit(n_surf, (item_x + 18, item_y + 3))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  Drawing Helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _draw_card_box(self, surf: pygame.Surface, x: int, y: int, w: int, h: int) -> None:
+        pygame.draw.rect(surf, C_CARD_BG, (x, y, w, h), border_radius=6)
+        pygame.draw.rect(surf, C_CARD_EDGE, (x, y, w, h), 1, border_radius=6)
+
+    def _draw_stat_line(self, surf: pygame.Surface, x: int, y: int, w: int, label: str, value: str) -> None:
+        lbl_surf = self.font_body.render(label, True, C_TEXT_MUTED)
+        val_surf = self.font_mono.render(value, True, C_TEXT_WHITE)
+        surf.blit(lbl_surf, (x, y))
+        surf.blit(val_surf, (x + w - val_surf.get_width(), y))
+
+    def _draw_chip_line(self, surf: pygame.Surface, x: int, y: int, w: int, label: str, value: str, key_hint: str) -> None:
+        lbl_surf = self.font_body.render(label, True, C_TEXT_MUTED)
+        val_surf = self.font_mono_sm.render(value, True, C_TEXT_WHITE)
+        surf.blit(lbl_surf, (x, y))
+
+        vx = x + w - val_surf.get_width()
+        surf.blit(val_surf, (vx, y + 1))
+
+        # Shortcut badge
+        hint_surf = self.font_key.render(key_hint, True, C_TEXT_FAINT)
+        hw = hint_surf.get_width() + 8
+        pygame.draw.rect(surf, C_CHIP_BG, (vx - hw - 8, y, hw, 18), border_radius=3)
+        pygame.draw.rect(surf, C_CHIP_EDGE, (vx - hw - 8, y, hw, 18), 1, border_radius=3)
+        surf.blit(hint_surf, (vx - hw - 4, y + 2))
+
+    def _draw_progress_bar(
+        self, surf: pygame.Surface, x: int, y: int, w: int, h: int,
+        frac: float, color: tuple, label: str, is_top: bool
+    ) -> int:
+        track_col = (36, 40, 50)
+        pygame.draw.rect(surf, track_col, (x, y, w, h), border_radius=4)
+
+        fill_w = max(2, int(w * max(0.0, min(1.0, frac))))
+        pygame.draw.rect(surf, color, (x, y, fill_w, h), border_radius=4)
+
+        # Labels
+        name_col = C_TEXT_WHITE if is_top else C_TEXT_MAIN
+        lbl = self.font_small.render(label, True, name_col)
+        pct = self.font_mono_sm.render(f"{frac:4.0%}", True, C_TEXT_WHITE if is_top else C_TEXT_MUTED)
+
+        surf.blit(lbl, (x + 6, y + 1))
+        surf.blit(pct, (x + w - pct.get_width() - 6, y + 1))
+
+        return y + h + 5
+
+    def _draw_badge(self, surf: pygame.Surface, x: int, y: int, w: int, h: int, text_surf: pygame.Surface) -> None:
+        pygame.draw.rect(surf, C_CHIP_BG, (x, y, w, h), border_radius=3)
+        pygame.draw.rect(surf, C_CHIP_EDGE, (x, y, w, h), 1, border_radius=3)
+        tx = x + (w - text_surf.get_width()) // 2
+        ty = y + (h - text_surf.get_height()) // 2
+        surf.blit(text_surf, (tx, ty))
+
+    def _render_text(self, surf: pygame.Surface, text: str, font: pygame.font.Font, x: int, y: int, color: tuple) -> None:
+        surf.blit(font.render(text, True, color), (x, y))
+
+    def _draw_toast(self) -> None:
+        if not self._status_msg or time.perf_counter() > self._status_t:
             return
         surf = self.screen
-        label = self.font_sm.render(self._status_msg, True, C_ACCENT)
-        bx, by = 8, self.board_px - label.get_height() - 6
-        by = max(4, by)
-        # subtle dark pill behind the text
-        pygame.draw.rect(surf, (20, 20, 20),
-                         (bx - 4, by - 3, label.get_width() + 10, label.get_height() + 6),
-                         border_radius=3)
-        surf.blit(label, (bx, by))
+        txt_surf = self.font_body.render(self._status_msg, True, C_TEXT_WHITE)
+        tw, th = txt_surf.get_width() + 24, txt_surf.get_height() + 14
+
+        bx = 16
+        by = self.board_px - th - 16
+        if by < 16:
+            by = 16
+
+        toast_bg = (24, 27, 34)
+        toast_edge = (50, 56, 70)
+        pygame.draw.rect(surf, toast_bg, (bx, by, tw, th), border_radius=6)
+        pygame.draw.rect(surf, toast_edge, (bx, by, tw, th), 1, border_radius=6)
+        surf.blit(txt_surf, (bx + 12, by + 7))
 
     # ─────────────────────────────────────────────────────────────────────────
     #  Quit
