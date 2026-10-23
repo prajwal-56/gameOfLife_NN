@@ -1,0 +1,8 @@
+numpy>=1.26
+pygame-ce>=2.5
+pytest>=7.0
+# ML dependencies
+torch>=2.0
+scikit-learn>=1.4
+matplotlib>=3.8
+scipy>=1.12
