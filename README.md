@@ -85,10 +85,13 @@ python -m life.evaluate --plots
 |---|---|
 | `Left Click` / `Drag` | Toggle cell state (draw / erase) |
 | `Right Click` / `Drag` | Erase cells |
+| `Space + Drag` or `Middle Drag` | Pan camera across the infinite canvas |
+| `Mouse Wheel` | Smooth zoom anchored to mouse cursor |
+| `0` or `H` | Fit and center board in viewport |
 | `Space` | Play / Pause simulation |
 | `→` or `N` | Advance single generation |
 | `↑` / `↓` | Double / halve simulation speed |
-| `[` / `]` or `Scroll` | Zoom in / out (cell pixel size) |
+| `[` / `]` | Zoom in / out (stepwise) |
 | `<` / `>` (`,` / `.`) | Decrease / increase board dimensions ($\pm 4$) |
 | `C` | Clear grid to empty state |
 | `R` | Populate grid with random soup |
